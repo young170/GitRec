@@ -1,9 +1,13 @@
 import requests
 from collections import defaultdict
 import json
+import os
+from dotenv import load_dotenv
 
-myun = ''
-mypw = ''
+load_dotenv()
+
+myun = str(os.getenv('GITHUB_USERNAME'))
+mypw = str(os.getenv('GITHUB_ACCESS_TOKEN'))
 
 my_starred_repos = []
 my_starred_users = []
@@ -13,22 +17,36 @@ user_starred_repos = defaultdict(set)
 
 def get_starred_by_user(user_name, starred_repos):
     starred_resp_list = []
-    last_resp = ''
-    first_url_to_get = 'https://api.github.com/users/'+ user_name +'/starred'
-    first_url_resp = requests.get(first_url_to_get, auth=(myun,mypw))
-    last_resp = first_url_resp
-    starred_resp_list.append(json.loads(first_url_resp.text))
+    last_resp = None
+    first_url_to_get = f'https://api.github.com/users/{user_name}/starred'
+    headers = {'Accept': 'application/vnd.github.v3+json'}
     
-    while last_resp.links.get('next'):
-        next_url_to_get = last_resp.links['next']['url']
-        next_url_resp = requests.get(next_url_to_get, auth=(myun,mypw))
-        last_resp = next_url_resp
-        starred_resp_list.append(json.loads(next_url_resp.text))
+    try:
+        first_url_resp = requests.get(first_url_to_get, auth=(myun, mypw), headers=headers)
+        if first_url_resp.status_code != 200:
+            print(f"Error fetching starred repos for {user_name}: {first_url_resp.status_code} {first_url_resp.reason}")
+            return
         
-    for i in starred_resp_list:
-        for j in i:
-            sr = j['html_url']
-            starred_repos.append(sr)
+        last_resp = first_url_resp
+        starred_resp_list.append(first_url_resp.json())
+        
+        while last_resp.links.get('next'):
+            next_url_to_get = last_resp.links['next']['url']
+            next_url_resp = requests.get(next_url_to_get, auth=(myun, mypw), headers=headers)
+            if next_url_resp.status_code != 200:
+                print(f"Error fetching next page for {user_name}: {next_url_resp.status_code} {next_url_resp.reason}")
+                break
+            last_resp = next_url_resp
+            starred_resp_list.append(next_url_resp.json())
+        
+        for page in starred_resp_list:
+            for repo in page:
+                if isinstance(repo, dict) and 'html_url' in repo:
+                    sr = repo['html_url']
+                    starred_repos.append(sr)
+    except Exception as e:
+        print(f"Error in get_starred_by_user for {user_name}: {e}")
+
 
 def get_starred_repo_users(starred_repos, starred_users):
     for ln in starred_repos:
